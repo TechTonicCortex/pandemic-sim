@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pandemic Simulator</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#080d14; --surface:#0f1520; --s2:#161e2e;
+  --border:rgba(100,200,100,0.1);
+  --healthy:#4fc3f7; --infected:#ff5252; --recovered:#68d391; --dead:#555;
+  --text:#e2ecf8; --dim:#4a6785; --r:10px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;gap:10px;flex-wrap:wrap;}
+.logo{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;color:#68d391;white-space:nowrap;}
+.logo span{color:var(--text);}
+.stats-row{display:flex;gap:14px;}
+.stat{display:flex;flex-direction:column;align-items:center;}
+.sv{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;}
+.sl{font-size:9px;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase;}
+
+.main{display:flex;flex:1;overflow:hidden;}
+
+.sidebar{width:230px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);padding:14px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;}
+.sidebar::-webkit-scrollbar{width:3px;}
+.sec-title{font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;font-weight:600;margin-bottom:8px;}
+.ctrl{display:flex;flex-direction:column;gap:4px;margin-bottom:6px;}
+.clbl{font-size:12px;color:var(--text);display:flex;justify-content:space-between;}
+.clbl span{font-family:'JetBrains Mono',monospace;color:#68d391;}
+input[type=range]{width:100%;height:4px;background:var(--s2);border-radius:2px;appearance:none;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{appearance:none;width:13px;height:13px;border-radius:50%;background:#68d391;cursor:pointer;}
+
+.btn-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.btn{padding:9px 6px;border:1px solid var(--border);border-radius:var(--r);background:var(--s2);color:var(--text);font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all 0.15s;text-align:center;}
+.btn:hover{border-color:#68d391;color:#68d391;}
+.btn.on{background:#68d391;border-color:#68d391;color:#000;}
+.btn.danger{border-color:#ff5252;color:#ff5252;}
+.btn.danger:hover{background:rgba(255,82,82,0.1);}
+.btn.full{grid-column:1/-1;}
+.btn.primary{background:#68d391;border-color:#68d391;color:#000;}
+.btn.primary:hover{opacity:0.85;}
+
+.legend{display:flex;flex-direction:column;gap:5px;}
+.leg-row{display:flex;align-items:center;gap:8px;font-size:12px;}
+.leg-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+
+.phase-box{background:var(--s2);border:1px solid var(--border);border-radius:var(--r);padding:10px;font-size:11px;line-height:1.8;color:var(--dim);}
+.phase-box strong{color:var(--text);}
+
+/* Simulation area */
+.sim-area{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+canvas#sim{display:block;flex:1;}
+
+/* Graph */
+.graph-wrap{height:130px;flex-shrink:0;border-top:1px solid var(--border);background:var(--surface);padding:8px 12px;position:relative;}
+.graph-title{font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;font-family:'JetBrains Mono',monospace;margin-bottom:4px;}
+canvas#graph{width:100%;height:90px;}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">Pandemic<span>Sim</span></div>
+  <div class="stats-row">
+    <div class="stat"><div class="sv" id="hDay" style="color:#4fc3f7">0</div><div class="sl">Day</div></div>
+    <div class="stat"><div class="sv" id="hHealthy" style="color:#4fc3f7">0</div><div class="sl">Healthy</div></div>
+    <div class="stat"><div class="sv" id="hInfected" style="color:#ff5252">0</div><div class="sl">Infected</div></div>
+    <div class="stat"><div class="sv" id="hRecovered" style="color:#68d391">0</div><div class="sl">Recovered</div></div>
+    <div class="stat"><div class="sv" id="hDead" style="color:#888">0</div><div class="sl">Dead</div></div>
+    <div class="stat"><div class="sv" id="hR0" style="color:#f6e05e">0.0</div><div class="sl">R Rate</div></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="sidebar">
+
+    <div>
+      <div class="sec-title">Controls</div>
+      <div class="btn-grid">
+        <button class="btn primary full" id="btnStart" onclick="toggleSim()">▶ Start</button>
+        <button class="btn danger" onclick="resetSim()">Reset</button>
+        <button class="btn" id="btnSpeed" onclick="cycleSpeed()">Speed 1×</button>
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-title">Disease</div>
+      <div class="ctrl">
+        <div class="clbl">Infection rate <span id="vInfect">30</span>%</div>
+        <input type="range" id="slInfect" min="1" max="100" value="30" oninput="updateSlider('Infect',this.value)">
+      </div>
+      <div class="ctrl">
+        <div class="clbl">Recovery days <span id="vRecover">14</span></div>
+        <input type="range" id="slRecover" min="3" max="40" value="14" oninput="updateSlider('Recover',this.value)">
+      </div>
+      <div class="ctrl">
+        <div class="clbl">Mortality rate <span id="vMortality">2</span>%</div>
+        <input type="range" id="slMortality" min="0" max="30" value="2" oninput="updateSlider('Mortality',this.value)">
+      </div>
+      <div class="ctrl">
+        <div class="clbl">Incubation days <span id="vIncubation">5</span></div>
+        <input type="range" id="slIncubation" min="1" max="14" value="5" oninput="updateSlider('Incubation',this.value)">
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-title">Population</div>
+      <div class="ctrl">
+        <div class="clbl">Population <span id="vPop">300</span></div>
+        <input type="range" id="slPop" min="50" max="600" value="300" step="10" oninput="updateSlider('Pop',this.value)">
+      </div>
+      <div class="ctrl">
+        <div class="clbl">Movement speed <span id="vMove">3</span></div>
+        <input type="range" id="slMove" min="1" max="8" value="3" oninput="updateSlider('Move',this.value)">
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-title">Interventions</div>
+      <div class="btn-grid">
+        <button class="btn" id="btnLockdown" onclick="toggleLockdown()">🏠 Lockdown</button>
+        <button class="btn" id="btnMask"     onclick="toggleMask()">😷 Masks</button>
+        <button class="btn" id="btnVaccine"  onclick="vaccinate()">💉 Vaccinate</button>
+        <button class="btn" id="btnQuarantine" onclick="toggleQuarantine()">🔒 Quarantine</button>
+      </div>
+      <div class="ctrl" style="margin-top:8px">
+        <div class="clbl">Vaccine coverage <span id="vVaccine">50</span>%</div>
+        <input type="range" id="slVaccine" min="10" max="100" value="50" oninput="updateSlider('Vaccine',this.value)">
+      </div>
+    </div>
+
+    <div>
+      <div class="sec-title">Legend</div>
+      <div class="legend">
+        <div class="leg-row"><div class="leg-dot" style="background:var(--healthy)"></div>Healthy / Susceptible</div>
+        <div class="leg-row"><div class="leg-dot" style="background:#ff9800"></div>Exposed (incubating)</div>
+        <div class="leg-row"><div class="leg-dot" style="background:var(--infected)"></div>Infected / Contagious</div>
+        <div class="leg-row"><div class="leg-dot" style="background:var(--recovered)"></div>Recovered / Immune</div>
+        <div class="leg-row"><div class="leg-dot" style="background:#90caf9"></div>Vaccinated</div>
+        <div class="leg-row"><div class="leg-dot" style="background:var(--dead)"></div>Deceased</div>
+      </div>
+    </div>
+
+    <div class="phase-box" id="phaseBox">
+      <strong>Ready to simulate.</strong><br>
+      Adjust parameters and press Start. Watch the infection curve in real time.
+    </div>
+
+  </div>
+
+  <div class="sim-area">
+    <canvas id="sim"></canvas>
+    <div class="graph-wrap">
+      <div class="graph-title">Infection Curve — SIR Model</div>
+      <canvas id="graph"></canvas>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────
+const simCanvas   = document.getElementById('sim');
+const simCtx      = simCanvas.getContext('2d');
+const graphCanvas = document.getElementById('graph');
+const graphCtx    = graphCanvas.getContext('2d');
+
+const STATES = { HEALTHY:0, EXPOSED:1, INFECTED:2, RECOVERED:3, DEAD:4, VACCINATED:5 };
+const COLORS  = ['#4fc3f7','#ff9800','#ff5252','#68d391','#555555','#90caf9'];
+
+let people = [], running = false, day = 0, frame = 0, speed = 1;
+let lockdown = false, masks = false, quarantine = false;
+let graphData = { healthy:[], exposed:[], infected:[], recovered:[], dead:[] };
+let lastInfected = 0, r0Estimate = 0;
+let W, H;
+
+function getParams() {
+  return {
+    infectRate:   parseInt(document.getElementById('slInfect').value) / 100,
+    recoveryDays: parseInt(document.getElementById('slRecover').value),
+    mortalityRate:parseInt(document.getElementById('slMortality').value) / 100,
+    incubation:   parseInt(document.getElementById('slIncubation').value),
+    population:   parseInt(document.getElementById('slPop').value),
+    moveSpeed:    parseInt(document.getElementById('slMove').value),
+  };
+}
+
+// ── PERSON ────────────────────────────────────────────────────────
+function makePerson(state) {
+  const angle = Math.random() * Math.PI * 2;
+  const spd = (Math.random() * 0.5 + 0.7) * getParams().moveSpeed;
+  return {
+    x: Math.random() * W,
+    y: Math.random() * H,
+    vx: Math.cos(angle) * spd,
+    vy: Math.sin(angle) * spd,
+    state,
+    daysInfected: 0,
+    daysExposed: 0,
+    infectedCount: 0,
+    r: 4,
+    isolating: false,
+    masked: false,
+  };
+}
+
+function resetSim() {
+  running = false;
+  document.getElementById('btnStart').textContent = '▶ Start';
+  document.getElementById('btnStart').className = 'btn primary full';
+  day = 0; frame = 0;
+  graphData = { healthy:[], exposed:[], infected:[], recovered:[], dead:[] };
+  lockdown = false; masks = false; quarantine = false;
+  document.getElementById('btnLockdown').classList.remove('on');
+  document.getElementById('btnMask').classList.remove('on');
+  document.getElementById('btnQuarantine').classList.remove('on');
+
+  const p = getParams();
+  W = simCanvas.width; H = simCanvas.height;
+  people = [];
+  for (let i = 0; i < p.population; i++) {
+    people.push(makePerson(STATES.HEALTHY));
+  }
+  // Patient zero
+  people[0].state = STATES.INFECTED;
+  people[0].daysInfected = 0;
+
+  updateHUD();
+  drawSim();
+  drawGraph();
+  setPhase('Patient zero infected. Press Start to begin the simulation.');
+}
+
+// ── UPDATE ────────────────────────────────────────────────────────
+const FRAMES_PER_DAY = 60;
+
+function update() {
+  if (!running) return;
+  const p = getParams();
+  frame++;
+
+  // Move people
+  const moveMultiplier = lockdown ? 0.08 : 1;
+  for (const person of people) {
+    if (person.state === STATES.DEAD) continue;
+    if (person.isolating && quarantine) continue;
+
+    const spd = (Math.random() * 0.3 + 0.85) * p.moveSpeed * moveMultiplier;
+    person.x += person.vx * spd * 0.3;
+    person.y += person.vy * spd * 0.3;
+
+    // Bounce off walls
+    if (person.x < person.r)  { person.x = person.r;  person.vx *= -1; }
+    if (person.x > W-person.r){ person.x = W-person.r; person.vx *= -1; }
+    if (person.y < person.r)  { person.y = person.r;   person.vy *= -1; }
+    if (person.y > H-person.r){ person.y = H-person.r; person.vy *= -1; }
+
+    // Random direction change
+    if (Math.random() < 0.02) {
+      const angle = Math.random() * Math.PI * 2;
+      person.vx = Math.cos(angle);
+      person.vy = Math.sin(angle);
+    }
+  }
+
+  // Infection spread
+  const infectedPeople = people.filter(p => p.state === STATES.INFECTED);
+  for (const infected of infectedPeople) {
+    if (infected.isolating && quarantine) continue;
+    for (const other of people) {
+      if (other.state !== STATES.HEALTHY) continue;
+      if (other.isolating && quarantine) continue;
+
+      const dx = infected.x - other.x;
+      const dy = infected.y - other.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const infectionRadius = 16;
+
+      if (dist < infectionRadius) {
+        let rate = p.infectRate;
+        if (masks) rate *= 0.35; // masks reduce by 65%
+        if (Math.random() < rate * 0.015) {
+          other.state = STATES.EXPOSED;
+          other.daysExposed = 0;
+          infected.infectedCount++;
+        }
+      }
+    }
+  }
+
+  // Day tick
+  if (frame % FRAMES_PER_DAY === 0) {
+    day++;
+
+    for (const person of people) {
+      if (person.state === STATES.EXPOSED) {
+        person.daysExposed++;
+        if (person.daysExposed >= p.incubation) {
+          person.state = STATES.INFECTED;
+          person.daysInfected = 0;
+          // Quarantine if enabled
+          if (quarantine && Math.random() < 0.7) person.isolating = true;
+        }
+      }
+
+      if (person.state === STATES.INFECTED) {
+        person.daysInfected++;
+        if (person.daysInfected >= p.recoveryDays) {
+          if (Math.random() < p.mortalityRate) {
+            person.state = STATES.DEAD;
+            person.vx = 0; person.vy = 0;
+          } else {
+            person.state = STATES.RECOVERED;
+            person.isolating = false;
+          }
+        }
+      }
+    }
+
+    // R0 estimate
+    if (infectedPeople.length > 0) {
+      const avgInfected = infectedPeople.reduce((s,p) => s+p.infectedCount, 0) / infectedPeople.length;
+      r0Estimate = Math.round(avgInfected * 10) / 10;
+    }
+
+    // Record graph data
+    const counts = countStates();
+    graphData.healthy.push(counts.healthy + counts.vaccinated);
+    graphData.exposed.push(counts.exposed);
+    graphData.infected.push(counts.infected);
+    graphData.recovered.push(counts.recovered);
+    graphData.dead.push(counts.dead);
+
+    updateHUD();
+    updatePhase();
+    drawGraph();
+
+    // Auto stop
+    const c = countStates();
+    if (c.infected === 0 && c.exposed === 0) {
+      running = false;
+      document.getElementById('btnStart').textContent = '▶ Restart';
+      setPhase(`Simulation ended on day ${day}. ${c.recovered} recovered, ${c.dead} died, ${c.healthy + c.vaccinated} never infected.`);
+    }
+  }
+}
+
+function countStates() {
+  const counts = { healthy:0, exposed:0, infected:0, recovered:0, dead:0, vaccinated:0 };
+  for (const p of people) {
+    if (p.state === STATES.HEALTHY)   counts.healthy++;
+    else if (p.state === STATES.EXPOSED)   counts.exposed++;
+    else if (p.state === STATES.INFECTED)  counts.infected++;
+    else if (p.state === STATES.RECOVERED) counts.recovered++;
+    else if (p.state === STATES.DEAD)      counts.dead++;
+    else if (p.state === STATES.VACCINATED)counts.vaccinated++;
+  }
+  return counts;
+}
+
+// ── DRAW SIM ──────────────────────────────────────────────────────
+function drawSim() {
+  simCtx.fillStyle = '#060a10';
+  simCtx.fillRect(0, 0, W, H);
+
+  // Connection lines between close infected/healthy
+  simCtx.lineWidth = 0.5;
+  const infected = people.filter(p => p.state === STATES.INFECTED && !(p.isolating && quarantine));
+  for (const inf of infected) {
+    for (const other of people) {
+      if (other.state !== STATES.HEALTHY) continue;
+      const dx = inf.x - other.x, dy = inf.y - other.y;
+      const dist = Math.sqrt(dx*dx+dy*dy);
+      if (dist < 20) {
+        const alpha = (1 - dist/20) * 0.4;
+        simCtx.strokeStyle = `rgba(255,82,82,${alpha})`;
+        simCtx.beginPath();
+        simCtx.moveTo(inf.x, inf.y);
+        simCtx.lineTo(other.x, other.y);
+        simCtx.stroke();
+      }
+    }
+  }
+
+  // Draw people
+  for (const person of people) {
+    const col = COLORS[person.state];
+    const r = person.r;
+
+    // Glow for infected
+    if (person.state === STATES.INFECTED) {
+      simCtx.beginPath();
+      simCtx.arc(person.x, person.y, r+5, 0, Math.PI*2);
+      simCtx.fillStyle = 'rgba(255,82,82,0.15)';
+      simCtx.fill();
+    }
+
+    // Quarantine box
+    if (person.isolating && quarantine) {
+      simCtx.strokeStyle = 'rgba(255,152,0,0.5)';
+      simCtx.lineWidth = 1;
+      simCtx.strokeRect(person.x-8, person.y-8, 16, 16);
+    }
+
+    simCtx.beginPath();
+    simCtx.arc(person.x, person.y, r, 0, Math.PI*2);
+    simCtx.fillStyle = col;
+    simCtx.fill();
+
+    // Mask indicator
+    if (masks && person.state !== STATES.DEAD) {
+      simCtx.fillStyle = 'rgba(255,255,255,0.5)';
+      simCtx.fillRect(person.x-3, person.y+1, 6, 3);
+    }
+  }
+
+  // Day counter overlay
+  simCtx.fillStyle = 'rgba(74,103,133,0.6)';
+  simCtx.font = '11px JetBrains Mono';
+  simCtx.textAlign = 'left';
+  simCtx.fillText(`Day ${day}`, 10, 20);
+  if (lockdown) { simCtx.fillStyle = '#ff9800'; simCtx.fillText('LOCKDOWN ACTIVE', 10, 36); }
+  if (masks)    { simCtx.fillStyle = '#4fc3f7'; simCtx.fillText('MASKS ENFORCED',  10, lockdown?52:36); }
+}
+
+// ── DRAW GRAPH ────────────────────────────────────────────────────
+function drawGraph() {
+  const GW = graphCanvas.width  = graphCanvas.parentElement.clientWidth;
+  const GH = graphCanvas.height = 90;
+  graphCtx.clearRect(0, 0, GW, GH);
+
+  const total = people.length || 1;
+  const maxLen = graphData.infected.length;
+  if (maxLen < 2) return;
+
+  const lines = [
+    { data: graphData.healthy,   color: '#4fc3f7' },
+    { data: graphData.exposed,   color: '#ff9800' },
+    { data: graphData.infected,  color: '#ff5252' },
+    { data: graphData.recovered, color: '#68d391' },
+    { data: graphData.dead,      color: '#888'     },
+  ];
+
+  for (const line of lines) {
+    if (!line.data.length) continue;
+    graphCtx.beginPath();
+    line.data.forEach((val, i) => {
+      const x = (i / (maxLen-1)) * GW;
+      const y = GH - (val / total) * GH;
+      i===0 ? graphCtx.moveTo(x,y) : graphCtx.lineTo(x,y);
+    });
+    graphCtx.strokeStyle = line.color;
+    graphCtx.lineWidth = 1.5;
+    graphCtx.stroke();
+  }
+
+  // Grid lines
+  graphCtx.strokeStyle = 'rgba(99,179,237,0.06)';
+  graphCtx.lineWidth = 1;
+  for (let i=1; i<4; i++) {
+    graphCtx.beginPath();
+    graphCtx.moveTo(0, GH*(i/4));
+    graphCtx.lineTo(GW, GH*(i/4));
+    graphCtx.stroke();
+  }
+}
+
+// ── HUD ───────────────────────────────────────────────────────────
+function updateHUD() {
+  const c = countStates();
+  document.getElementById('hDay').textContent       = day;
+  document.getElementById('hHealthy').textContent   = c.healthy + c.vaccinated;
+  document.getElementById('hInfected').textContent  = c.infected + c.exposed;
+  document.getElementById('hRecovered').textContent = c.recovered;
+  document.getElementById('hDead').textContent      = c.dead;
+  document.getElementById('hR0').textContent        = r0Estimate.toFixed(1);
+}
+
+function updatePhase() {
+  const c = countStates();
+  const pct = Math.round(c.infected / people.length * 100);
+  if (pct > 30) setPhase(`⚠️ <strong>Peak infection</strong> — ${pct}% infected simultaneously. Healthcare systems at risk.`);
+  else if (c.recovered > c.healthy) setPhase(`📉 <strong>Declining spread</strong> — herd immunity building. Recovered: ${c.recovered}.`);
+  else if (day < 10) setPhase(`📈 <strong>Early spread</strong> — Day ${day}. The virus is establishing.`);
+  else setPhase(`🔬 <strong>Day ${day}</strong> — ${c.infected} actively infected, ${c.recovered} immune.`);
+}
+
+function setPhase(msg) {
+  document.getElementById('phaseBox').innerHTML = msg;
+}
+
+// ── CONTROLS ──────────────────────────────────────────────────────
+function toggleSim() {
+  running = !running;
+  const btn = document.getElementById('btnStart');
+  btn.textContent = running ? '⏸ Pause' : '▶ Resume';
+  btn.className = running ? 'btn danger full' : 'btn primary full';
+}
+
+function cycleSpeed() {
+  speed = speed === 1 ? 3 : speed === 3 ? 6 : 1;
+  document.getElementById('btnSpeed').textContent = `Speed ${speed}×`;
+}
+
+function toggleLockdown() {
+  lockdown = !lockdown;
+  document.getElementById('btnLockdown').classList.toggle('on', lockdown);
+  setPhase(lockdown ? '🏠 <strong>Lockdown active</strong> — movement reduced by 92%. Spread will slow.' : '🏠 Lockdown lifted — people moving freely again.');
+}
+
+function toggleMask() {
+  masks = !masks;
+  document.getElementById('btnMask').classList.toggle('on', masks);
+  setPhase(masks ? '😷 <strong>Masks enforced</strong> — infection rate reduced by 65%.' : '😷 Mask mandate lifted.');
+}
+
+function toggleQuarantine() {
+  quarantine = !quarantine;
+  document.getElementById('btnQuarantine').classList.toggle('on', quarantine);
+  if (!quarantine) people.forEach(p => p.isolating = false);
+  setPhase(quarantine ? '🔒 <strong>Quarantine active</strong> — infected individuals isolated.' : '🔒 Quarantine lifted.');
+}
+
+function vaccinate() {
+  const coverage = parseInt(document.getElementById('slVaccine').value) / 100;
+  let count = 0;
+  for (const person of people) {
+    if (person.state === STATES.HEALTHY && Math.random() < coverage) {
+      person.state = STATES.VACCINATED;
+      count++;
+    }
+  }
+  setPhase(`💉 <strong>Vaccination complete</strong> — ${count} people vaccinated (${Math.round(count/people.length*100)}% of population).`);
+  updateHUD(); drawSim();
+}
+
+function updateSlider(name, val) {
+  document.getElementById('v'+name).textContent = val;
+}
+
+// ── RESIZE ────────────────────────────────────────────────────────
+function resize() {
+  const wrap = simCanvas.parentElement;
+  W = simCanvas.width  = wrap.clientWidth;
+  H = simCanvas.height = wrap.clientHeight - 130;
+  drawSim();
+}
+
+window.addEventListener('resize', () => { resize(); resetSim(); });
+
+// ── LOOP ──────────────────────────────────────────────────────────
+function loop() {
+  for (let s=0; s<speed; s++) update();
+  drawSim();
+  requestAnimationFrame(loop);
+}
+
+// ── INIT ──────────────────────────────────────────────────────────
+resize();
+resetSim();
+loop();
+</script>
+</body>
+</html>
